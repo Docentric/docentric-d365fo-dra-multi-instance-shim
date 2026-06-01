@@ -1,0 +1,77 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <DRALibPath Condition="'$(DRALibPath)' == ''">C:\Program Files (x86)\Microsoft Dynamics 365 for Operations - Document Routing</DRALibPath>
+  </PropertyGroup>
+  
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x86</PlatformTarget>
+    <Platforms>x86</Platforms>
+    <AssemblyName>Docentric.D365FO.DRAServiceShim</AssemblyName>
+    <RootNamespace>Docentric.D365FO.DRAServiceShim</RootNamespace>
+    <Product>Docentric DRA Service Shim</Product>
+    <Description>Per-instance data path injector for the Microsoft Dynamics 365 Document Routing Agent (DRA) Windows Service. Enables multiple DRA instances on the same server to use isolated data and log directories by redirecting FileManager.AppDataDirectory before the real service starts.</Description>
+    <FileDescription>Per-instance data path injector for the Microsoft Dynamics 365 Document Routing Agent (DRA) Windows Service. Enables multiple DRA instances on the same server to use isolated data and log directories by redirecting FileManager.AppDataDirectory before the real service starts.</FileDescription>
+    <Authors>Docentric</Authors>
+    <Company>Docentric</Company>
+    <Copyright>Copyright © Docentric 2026</Copyright>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <NeutralLanguage>en-US</NeutralLanguage>
+    <Nullable>disable</Nullable>
+    <Deterministic>true</Deterministic>
+    <!-- Output directly to a dist folder for easy pickup by the install script -->
+    <OutputPath Condition="'$(OutputPath)' == ''">$(MSBuildThisFileDirectory)..\dist\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <DefineConstants>TRACE;DEBUG;</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>CS1591</NoWarn>
+    <WarningsAsErrors>;NU1605</WarningsAsErrors>
+  </PropertyGroup>
+	
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+	  <DebugType>none</DebugType>
+	  <Optimize>true</Optimize>
+	  <DefineConstants>TRACE;</DefineConstants>
+	  <ErrorReport>prompt</ErrorReport>
+	  <WarningLevel>4</WarningLevel>
+	  <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+	  <DebugSymbols>false</DebugSymbols>
+	  <NoWarn>CS1591</NoWarn>
+	  <WarningsAsErrors>;NU1605</WarningsAsErrors>
+  </PropertyGroup>
+	
+  <ItemGroup>
+    <PackageReference Include="CommandLineParser" Version="2.9.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Runtime.dll and Service.exe are referenced only for compilation.
+      At runtime they are resolved from the same directory as DraShim.exe
+      (the per-instance DRA binary folder) via normal AppDomain probing.
+      CopyLocal=false: we do not want them copied to the output directory
+      the install script handles placing all binaries together.
+    -->
+    <Reference Include="Microsoft.Dynamics.AX.Framework.DocumentRouting.Runtime">
+      <HintPath>$(DRALibPath)\Microsoft.Dynamics.AX.Framework.DocumentRouting.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Microsoft.Dynamics.AX.Framework.DocumentRouting.Service">
+      <HintPath>$(DRALibPath)\Microsoft.Dynamics.AX.Framework.DocumentRouting.Service.exe</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="System.ServiceProcess" />
+  </ItemGroup>
+</Project>

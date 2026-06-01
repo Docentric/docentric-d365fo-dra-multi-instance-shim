@@ -1,0 +1,17 @@
+{
+  "profiles": {
+    "Using Environment Variables": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "DRA_DATA_PATH": "c:\\temp"
+      },
+      "remoteDebugEnabled": false,
+      "nativeDebugging": true
+    },
+    "Using Parameters": {
+      "commandName": "Project",
+      "commandLineArgs": "--DRA_DATA_PATH=C:\\TEMP",
+      "nativeDebugging": true
+    }
+  }
+}

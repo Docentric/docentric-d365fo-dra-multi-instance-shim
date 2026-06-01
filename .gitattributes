@@ -1,0 +1,54 @@
+# ============================================================
+# Default behaviour: ensure line endings are normalised to LF
+# in the repository and checked out as CRLF on Windows.
+# ============================================================
+* text=auto eol=crlf
+
+# ============================================================
+# Source code — enforce LF
+# ============================================================
+*.cs        text eol=crlf
+*.csx       text eol=crlf
+*.csproj    text eol=crlf
+*.sln       text eol=crlf
+*.slnx      text eol=crlf
+*.props     text eol=crlf
+*.targets   text eol=crlf
+*.config    text eol=crlf
+*.xml       text eol=crlf
+*.json      text eol=crlf
+*.yaml      text eol=crlf
+*.yml       text eol=crlf
+*.md        text eol=crlf
+*.txt       text eol=crlf
+*.editorconfig text eol=crlf
+*.gitignore text eol=crlf
+*.gitattributes text eol=crlf
+
+# ============================================================
+# PowerShell — CRLF (native Windows line endings)
+# ============================================================
+*.ps1       text eol=crlf
+*.psm1      text eol=crlf
+*.psd1      text eol=crlf
+*.ps1xml    text eol=crlf
+
+# ============================================================
+# Binaries — do not diff or modify
+# ============================================================
+*.exe       binary
+*.dll       binary
+*.pdb       binary
+*.zip       binary
+*.nupkg     binary
+*.snupkg    binary
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
+
+# ============================================================
+# Linguist overrides (GitHub language stats)
+# ============================================================
+dist/**     linguist-generated=true

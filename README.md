@@ -2,6 +2,10 @@
 
 Run multiple **Microsoft Dynamics 365 Document Routing Agent (DRA)** instances on the same Windows server, each writing to its own isolated data directory.
 
+Running multiple DRA instances is a known technique to reduce printing delays and increase throughput in high-volume D365FO printing scenarios — for example, when many documents are queued for different network printers. Because DRA polls for new print jobs every 5 seconds by default and processes only one document per poll, parallelising across several instances significantly cuts end-to-end latency. For background on DRA internals and the case for multiple instances, see [Reduce the Delay When Printing via Document Routing Agent](https://ax.docentric.com/reduce-the-delay-when-printing-via-document-routing-agent/).
+
+However, simply running `Service.exe` multiple times hits a hard wall: all instances share the same data folder, causing file-locking collisions on log files. This shim solves that problem.
+
 ---
 
 ## The Problem
@@ -36,6 +40,7 @@ Each instance gets its own `Logs\`, config, token cache, and excluded-printers f
 | DRA installed | The base DRA installation must exist and have been authenticated via the Agent UI at least once |
 | PowerShell 5.1+ | All scripts use `#Requires -RunAsAdministrator` |
 | Administrator rights | Required for both build output copy and service registration |
+| Service account | The Windows account used to authenticate DRA in the Agent UI; must be a domain or local user (not `LocalSystem`) so the token cache is accessible and the Azure AD token can be silently refreshed |
 
 ---
 
@@ -84,13 +89,16 @@ The compiled `Docentric.D365FO.DRAServiceShim.exe` is written to the `dist\` fol
 
 > **This step is mandatory.** The install script seeds credentials and settings from the base DRA installation into each instance. If this is skipped the instances will not be able to connect to Dynamics 365.
 
-1. Open the **Microsoft Dynamics 365 Document Routing Agent** application on the target server.
-2. Sign in with your Azure AD / Microsoft account.
-3. Configure the AOS URL and any other settings required by your environment.
-4. Confirm the agent shows a **Connected** status and can receive print jobs.
-5. Close the Agent UI.
+1. Sign in to Windows as the dedicated service account (e.g. `DOMAIN\draserviceuser`) that will later run the DRA services.
+2. Open the **Microsoft Dynamics 365 Document Routing Agent** application on the target server.
+3. Sign in with your Azure AD / Microsoft account.
+4. Configure the AOS URL and any other settings required by your environment.
+5. Confirm the agent shows a **Connected** status and can receive print jobs.
+6. Close the Agent UI.
 
-At this point the following files exist and are up to date in the reference data directory (`C:\ProgramData\Microsoft\Microsoft Dynamics 365 for Operations - Document Routing\`):
+> **Important:** Note the Windows account you are currently signed in as when you perform this step. You must install the services under the **same account** so they can read and refresh `TokenCache2.dat`. Using `LocalSystem` or a different account will cause silent token-refresh failures once the cached token expires.
+
+At this point
 
 | File | Purpose |
 |---|---|
@@ -102,20 +110,35 @@ The install script automatically copies all three files into each instance's dat
 
 ### 4. Install instances
 
+Before installing, ensure the service account has **Log on as a service** rights. You can grant them via __Local Security Policy > Security Settings > Local Policies > User Rights Assignment > Log on as a service__, or with the following PowerShell snippet (run once on the target server, elevated):
+
 ```powershell
-# Install three instances with default paths
-.\Install-DRAInstances.ps1 -InstanceNames "DRA1","DRA2","DRA3"
+$account = "DOMAIN\draserviceuser"
+secedit /export /cfg "$env:TEMP\secpol.cfg" | Out-Null
+(Get-Content "$env:TEMP\secpol.cfg") -replace "(SeServiceLogonRight\s*=.*)", "`$1,$account" |
+    Set-Content "$env:TEMP\secpol.cfg"
+secedit /import /cfg "$env:TEMP\secpol.cfg" /db secedit.sdb | Out-Null
+secedit /configure /db secedit.sdb | Out-Null
+```
+
+```powershell
+# Install three instances running as the authenticated user
+.\Install-DRAInstances.ps1 -InstanceNames "DRA1","DRA2","DRA3" `
+    -ServiceAccount         "DOMAIN\draserviceuser" `
+    -ServiceAccountPassword "P@ssword1"
 
 # Install with custom data and binary roots
 .\Install-DRAInstances.ps1 -InstanceNames "DRA1","DRA2" `
-    -InstancesRoot "D:\DRAInstances" `
-    -DataRoot      "D:\DRAData"
+    -InstancesRoot          "D:\DRAInstances" `
+    -DataRoot               "D:\DRAData" `
+    -ServiceAccount         "DOMAIN\draserviceuser" `
+    -ServiceAccountPassword "P@ssword1"
 ```
 
 Each instance gets:
 - **Binaries**: `<InstancesRoot>\<Name>\` — a full copy of the DRA directory with the shim placed alongside `Service.exe`.
 - **Data**: `<DataRoot>\<Name>\` — isolated config, token cache, excluded printers, and logs.
-- **Service**: an auto-start Windows service named `<Name>` (e.g. `DRA1`).
+- **Service**: an auto-start Windows service named `<Name>` (e.g. `DRA1`), running as the specified service account.
 
 ### 5. Start the services
 
@@ -137,9 +160,11 @@ Each instance should have its own log file under `C:\DRAData\<Name>\Logs\`.
 
 Whenever you re-authenticate or change settings in the DRA Agent UI, the reference files are updated in the base data directory. These changes are **not** automatically propagated to the running instances. You must sync them manually:
 
+> **Token refresh:** When the service runs as the authenticated user, DRA can silently refresh the Azure AD token without manual intervention. If you ever change the service account, you must re-authenticate in the Agent UI **as that new account** and re-copy `TokenCache2.dat` to each instance data directory.
+
 ### Re-authenticate or update settings in the base DRA installation
 
-1. Open the **DRA Agent UI**, make your changes, and confirm a **Connected** status.
+1. Sign in to Windows as the service account, open the **DRA Agent UI**, make your changes, and confirm a **Connected** status.
 2. Stop all instances:
    ```powershell
    Get-Service DRA* | Stop-Service
@@ -200,8 +225,8 @@ Whenever you re-authenticate or change settings in the DRA Agent UI, the referen
 | `-InstancesRoot` | `C:\DRAInstances` | Root folder for per-instance binary directories |
 | `-DataRoot` | `C:\DRAData` | Root folder for per-instance data directories |
 | `-ReferenceDataPath` | `C:\ProgramData\Microsoft\Microsoft Dynamics 365...` | Authenticated DRA data directory to seed credentials from |
-| `-ServiceAccount` | `LocalSystem` | Service account (`LocalSystem` or `DOMAIN\user`) |
-| `-ServiceAccountPassword` | *(empty)* | Password for domain service accounts |
+| `-ServiceAccount` | *(required)* | Domain or local account that performed DRA authentication, e.g. `DOMAIN\draserviceuser`. **Do not use `LocalSystem`** — the token cache is user-scoped and will not be refreshable by a system account |
+| `-ServiceAccountPassword` | *(required)* | Password for the service account |
 
 ### `Uninstall-DRAInstances.ps1`
 

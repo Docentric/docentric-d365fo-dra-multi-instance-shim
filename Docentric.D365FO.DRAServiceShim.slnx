@@ -1,10 +1,22 @@
 <Solution>
+  <Configurations>
+    <Configuration Name="Debug" />
+    <Configuration Name="Release" />
+    <Platform Name="x86" />
+  </Configurations>
   <Folder Name="/_Root/">
     <File Path=".editorconfig" />
+    <File Path=".gitattributes" />
+    <File Path=".gitignore" />
     <File Path="Build.ps1" />
     <File Path="Install-DRAInstances.ps1" />
     <File Path="README.md" />
     <File Path="Uninstall-DRAInstances.ps1" />
   </Folder>
-  <Project Path="Docentric.D365FO.DRAServiceShim/Docentric.D365FO.DRAServiceShim.csproj" />
+  <Project Path="Docentric.D365FO.DRAServiceShim/Docentric.D365FO.DRAServiceShim.csproj">
+    <ConfigurationMappings>
+      <ConfigurationMapping SolutionConfiguration="Debug" SolutionPlatform="x86" ProjectConfiguration="Debug" ProjectPlatform="x86" />
+      <ConfigurationMapping SolutionConfiguration="Release" SolutionPlatform="x86" ProjectConfiguration="Release" ProjectPlatform="x86" />
+    </ConfigurationMappings>
+  </Project>
 </Solution>

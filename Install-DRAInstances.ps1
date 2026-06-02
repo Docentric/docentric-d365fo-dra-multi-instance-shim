@@ -51,7 +51,8 @@
     Default: C:\ProgramData\Microsoft\Microsoft Dynamics 365 for Operations - Document Routing
 
 .PARAMETER ServiceAccount
-    "LocalSystem" or "DOMAIN\user". Default: LocalSystem.
+    "LocalSystem", "NT AUTHORITY\NetworkService", "NT AUTHORITY\LocalService", or "DOMAIN\user".
+    Default: NT AUTHORITY\NetworkService.
 
 .PARAMETER ServiceAccountPassword
     Password for domain\user service accounts.
@@ -79,7 +80,7 @@ param(
 
     [string] $ReferenceDataPath = "C:\ProgramData\Microsoft\Microsoft Dynamics 365 for Operations - Document Routing",
 
-    [string] $ServiceAccount = "LocalSystem",
+    [string] $ServiceAccount = "NT AUTHORITY\NetworkService",
 
     [string] $ServiceAccountPassword = ""
 )
@@ -271,6 +272,30 @@ function New-InstanceBinDirectory([string]$SourcePath, [string]$DestPath, [strin
 
 <#
 .SYNOPSIS
+    Ensures ida:RunAsWindowsService is set to True in the DRA config file.
+.PARAMETER ConfigPath
+    Full path to Microsoft.Dynamics.AX.Framework.DocumentRouting.config.
+.DESCRIPTION
+    Loads the XML config, finds the ida:RunAsWindowsService appSetting key,
+    and sets its value to True. Throws if the key is not present.
+#>
+function Set-RunAsWindowsService([string]$ConfigPath) {
+    if (-not (Test-Path $ConfigPath)) {
+        Write-Warn "Config file not found, cannot set RunAsWindowsService: $ConfigPath"
+        return
+    }
+    [xml]$xml = Get-Content -Path $ConfigPath -Encoding UTF8
+    $node = $xml.configuration.appSettings.add | Where-Object { $_.key -eq 'ida:RunAsWindowsService' }
+    if ($null -eq $node) {
+        throw "Key 'ida:RunAsWindowsService' not found in: $ConfigPath"
+    }
+    $node.value = 'True'
+    $xml.Save($ConfigPath)
+    Write-OK "ida:RunAsWindowsService set to True in config"
+}
+
+<#
+.SYNOPSIS
     Creates a per-instance data directory and seeds it from the reference installation.
 .PARAMETER DataPath
     The target data directory for this instance (e.g. C:\DRAData\DRA1).
@@ -298,11 +323,14 @@ function New-InstanceDataDirectory([string]$DataPath, [string]$ReferencePath) {
             Write-Warn "Not in reference, skipping: $file"
         }
     }
+
+    $configDst = Join-Path $DataPath "Microsoft.Dynamics.AX.Framework.DocumentRouting.config"
+    Set-RunAsWindowsService -ConfigPath $configDst
 }
 
 <#
 .SYNOPSIS
-    Registers a Windows service for a single DRA instance using sc.exe.
+    Registers a Windows service
 .PARAMETER ServiceName
     The SCM service name (e.g. "DRA1"). Also used as the display-name suffix.
 .PARAMETER ShimExe
@@ -358,8 +386,10 @@ function Install-ServiceWithSc {
     # falling back to the environment variable, so this is the primary source.
     $exeQuoted   = "`"$ShimExe`" --DRA_DATA_PATH=`"$DataPath`""
 
-    if ($Account -eq "LocalSystem" -or [string]::IsNullOrWhiteSpace($Account)) {
-        sc.exe create $ServiceName binPath= $exeQuoted start= auto DisplayName= $displayName | Out-Null
+    $noPasswordAccounts = @("LocalSystem", "NT AUTHORITY\NetworkService", "NT AUTHORITY\LocalService")
+    if ([string]::IsNullOrWhiteSpace($Account) -or $noPasswordAccounts -contains $Account) {
+        sc.exe create $ServiceName binPath= $exeQuoted start= auto DisplayName= $displayName `
+            obj= $Account | Out-Null
     } else {
         sc.exe create $ServiceName binPath= $exeQuoted start= auto DisplayName= $displayName `
             obj= $Account password= $Password | Out-Null

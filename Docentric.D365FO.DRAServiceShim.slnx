@@ -12,11 +12,7 @@
     <File Path="Install-DRAInstances.ps1" />
     <File Path="README.md" />
     <File Path="Uninstall-DRAInstances.ps1" />
+    <File Path="Update-DRAInstancesConfig.ps1" />
   </Folder>
-  <Project Path="Docentric.D365FO.DRAServiceShim/Docentric.D365FO.DRAServiceShim.csproj">
-    <ConfigurationMappings>
-      <ConfigurationMapping SolutionConfiguration="Debug" SolutionPlatform="x86" ProjectConfiguration="Debug" ProjectPlatform="x86" />
-      <ConfigurationMapping SolutionConfiguration="Release" SolutionPlatform="x86" ProjectConfiguration="Release" ProjectPlatform="x86" />
-    </ConfigurationMappings>
-  </Project>
+  <Project Path="Docentric.D365FO.DRAServiceShim/Docentric.D365FO.DRAServiceShim.csproj" />
 </Solution>

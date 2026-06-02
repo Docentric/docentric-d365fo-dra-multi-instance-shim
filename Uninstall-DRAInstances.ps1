@@ -111,7 +111,7 @@ function Resolve-InstanceNames([string[]]$Names, [string]$Prefix) {
         }
         return @($found | Select-Object -ExpandProperty Name)
     }
-    return $Names
+    return ,$Names
 }
 
 <#

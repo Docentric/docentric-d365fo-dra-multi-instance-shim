@@ -52,6 +52,13 @@
   </PropertyGroup>
 	
   <ItemGroup>
+    <None Update="App.config">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <TargetPath>$(AssemblyName).exe.config</TargetPath>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="CommandLineParser" Version="2.9.1" />
   </ItemGroup>
 

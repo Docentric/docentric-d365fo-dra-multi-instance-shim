@@ -23,7 +23,7 @@
     GetFolderPath is never called once the field is pre-set. All five data paths are isolated.
 
     Build Docentric.D365FO.DRAServiceShim.exe before running this script:
-        cd DraShim
+        cd Docentric.D365FO.DRAServiceShim
         dotnet build -c Release /p:DRALibPath="C:\Program Files (x86)\Microsoft Dynamics 365 for Operations - Document Routing"
     Then copy Docentric.D365FO.DRAServiceShim.exe to the folder specified by -ShimExePath (or the default).
 
@@ -93,7 +93,8 @@ $ErrorActionPreference = "Stop"
 
 $SERVICE_EXE  = "Microsoft.Dynamics.AX.Framework.DocumentRouting.Service.exe"
 $SHIM_EXE     = "Docentric.D365FO.DRAServiceShim.exe"
-$ETW_MANIFEST = "Microsoft.Dynamics.ApplicationPlatform.DocumentRouting.man"
+$ETW_MANIFEST       = "Microsoft.Dynamics.ApplicationPlatform.DocumentRouting.man"
+$ETW_MANIFEST_SSRS  = "Microsoft.Dynamics.ApplicationPlatform.SSRSReportRuntime.man"
 
 $REFERENCE_FILES = @(
     "Microsoft.Dynamics.AX.Framework.DocumentRouting.config"
@@ -149,7 +150,7 @@ function Assert-SourceExists([string]$Path) {
     Full path to Docentric.D365FO.DRAServiceShim.exe (value of -ShimExePath).
 .DESCRIPTION
     Throws a terminating error with build instructions if the shim is missing,
-    reminding the caller to compile the DraShim project before running this script.
+    reminding the caller to compile the Docentric.D365FO.DRAServiceShim project before running this script.
 #>
 function Assert-ShimExists([string]$Path) {
     if (-not (Test-Path $Path)) {
@@ -189,19 +190,21 @@ function Assert-ReferenceData([string]$Path) {
     absent or wevtutil reports a non-zero exit code.
 #>
 function Register-EtwManifest([string]$SourcePath) {
-    Write-Step "Registering ETW manifest"
-    $manFile = Join-Path $SourcePath $ETW_MANIFEST
-    if (-not (Test-Path $manFile)) {
-        Write-Warn "ETW manifest not found: $manFile -- skipping"
-        return
-    }
-    # Unregister first to handle re-installs cleanly
-    & wevtutil um $manFile 2>&1 | Out-Null
-    & wevtutil im $manFile 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warn "wevtutil im returned $LASTEXITCODE -- channels may already be registered"
-    } else {
-        Write-OK "ETW channels registered"
+    Write-Step "Registering ETW manifests"
+    foreach ($manifest in @($ETW_MANIFEST, $ETW_MANIFEST_SSRS)) {
+        $manFile = Join-Path $SourcePath $manifest
+        if (-not (Test-Path $manFile)) {
+            Write-Warn "ETW manifest not found: $manFile -- skipping"
+            continue
+        }
+        # Unregister first to handle re-installs cleanly
+        & wevtutil um $manFile 2>&1 | Out-Null
+        & wevtutil im $manFile 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "wevtutil im returned $LASTEXITCODE for $manifest -- channels may already be registered"
+        } else {
+            Write-OK "ETW channels registered: $manifest"
+        }
     }
 }
 
@@ -366,7 +369,8 @@ function Install-ServiceWithSc {
         throw "Failed to create service '$ServiceName'."
     }
 
-    sc.exe description $ServiceName "DRA instance $ServiceName (DraShim multi-instance)" | Out-Null
+    $serviceDescription = "Document routing service for Microsoft Dynamics 365 for Finance and Operations (instance name: $ServiceName, Docentric.D365FO.DRAServiceShim)"
+    sc.exe description $ServiceName $serviceDescription | Out-Null
     sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/5000/restart/5000 | Out-Null
 
     # Also keep the registry environment block as a fallback, matching the

@@ -240,6 +240,126 @@ Whenever you re-authenticate or change settings in the DRA Agent UI, the referen
 
 ---
 
+## ❓ FAQ
+
+### Build is not working — what should I check?
+
+**1. Verify prerequisites are installed**
+
+| Prerequisite | How to check |
+|---|---|
+| .NET SDK 8+ | `dotnet --version` — must be `8.x` or higher |
+| .NET Framework 4.8 | Check *Control Panel > Programs > Turn Windows features on or off* or `Get-WindowsOptionalFeature -Online -FeatureName NetFx4` |
+| DRA installed | Confirm `Service.exe` exists in `-DRASourcePath` (default: `%ProgramFiles(x86)%\Microsoft Dynamics 365 for Operations - Document Routing`) |
+
+**2. Common build failures**
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `DRA source path not found` | `-DRASourcePath` points to a non-existent directory | Pass the correct path: `.\Build.ps1 -DRASourcePath "D:\DRA"` |
+| `Build failed` (MSBuild errors about missing `Runtime.dll` / `Service.exe`) | `DRALibPath` MSBuild property does not point to the DRA binaries | Ensure `-DRASourcePath` is the actual DRA installation folder containing those files |
+| `Build output not found in: dist\` | The `dist\` folder was not created or the project's post-build copy step failed | Check the MSBuild output for errors; confirm the `.csproj` has an `AfterBuild` target that copies output to `dist\` |
+| `dotnet: command not found` | .NET SDK not on `PATH` | Install .NET SDK 8+ and restart the PowerShell session |
+
+---
+
+### Installation fails — what should I check?
+
+**Common `Install-DRAInstances.ps1` failures**
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `Run this script as Administrator` | Script not elevated | Right-click PowerShell → *Run as Administrator* |
+| `DRA Service.exe not found at: <path>` | DRA not installed or `-DRASourcePath` is wrong | Install DRA first, or pass the correct path |
+| `Docentric.D365FO.DRAServiceShim.exe not found` | `Build.ps1` was not run, or the shim was not copied next to the install script | Run `.\Build.ps1` first; the shim is copied automatically |
+| `Reference config not found` | The base DRA installation was never authenticated via the Agent UI | Open DRA Desktop, sign in, and confirm *Connected* status before running the install script |
+| `Failed to create service '<Name>'` | `sc.exe` failed — often a permission issue or a leftover service in a broken state | Open *Services*, find the service, stop and delete it manually, then re-run |
+| Service account `Log on as a service` right missing | The domain account has not been granted the right | See the `secedit` snippet in *Step 4* of Getting Started |
+
+---
+
+### Services start but DRA cannot authenticate — what should I check?
+
+This is the most common post-install problem. The symptoms in the Windows Event Log are:
+
+- **Operational log**: `Microsoft.Identity.Client.MsalUiRequiredException` — `ErrorCode: user_null` — *No account or login hint was passed to the AcquireTokenSilent call.*
+- **Admin log**: repeated *Document Routing MSAL authenticate start / stop* pairs that never result in a successful sign-in.
+- **Follow-on errors**: `AggregateException` → `MsalException` — *Could not get authentication result* — in `DocumentRoutingTimer_Tick`, `ServiceWorker.SignIn()`, and `PollingDocument()`.
+- **Upload failures**: `UploadDRAInformationAsync` cannot set the OData authorization header for the same reason.
+- **Secondary**: `EventLogNotFoundException` — *The specified channel could not be found* — in `GetActiveGlobalChannels`. This is not the authentication blocker but indicates the ETW manifest was not registered; re-running `Install-DRAInstances.ps1` or registering the manifest manually with `wevtutil im` will resolve it.
+
+**Root cause**
+
+DRA uses MSAL silent token acquisition. The token cache (`TokenCache2.dat`) is **user-scoped**: it is only readable by the Windows account that performed the original sign-in via the Agent UI. If the service runs as a different account (e.g. `LocalSystem` — security context `S-1-5-18`) MSAL cannot find a cached account and throws `user_null`.
+
+**How to fix**
+
+1. Open **Windows Services** (`services.msc`).
+2. Find each `DRA*` service → *Properties* → **Log On** tab.
+3. Confirm *This account* is set to the **same domain/local user** that signed in through the DRA Agent UI (e.g. `DOMAIN\draserviceuser`). If it shows *Local System*, that is the problem.
+4. If the account is wrong — or if you are unsure — re-run the install script with the correct `-ServiceAccount` and `-ServiceAccountPassword` parameters.
+5. Sign in interactively to Windows as that same account, open the **DRA Agent UI**, sign in, and confirm a **Connected** status. This refreshes `TokenCache2.dat`.
+6. Copy the updated `TokenCache2.dat` to each instance data directory (see *Keeping Credentials in Sync*).
+7. Restart the services:
+   ```powershell
+   Get-Service DRA* | Restart-Service
+   ```
+8. Recheck the Operational log — authentication errors should be gone.
+
+> **Note:** `LocalSystem` cannot silently refresh Azure AD tokens because it has no user identity. Always run DRA services under a named domain or local user account.
+
+### An assembly cannot be loaded — what should I check?
+
+If the shim crashes on startup with an error such as:
+
+```
+System.IO.FileLoadException: Could not load file or assembly 'Newtonsoft.Json, Version=…' or one of its dependencies.
+```
+
+or
+
+```
+System.IO.FileNotFoundException: Could not load file or assembly 'Microsoft.Identity.Client, …'
+```
+
+the most likely cause is that `Docentric.D365FO.DRAServiceShim.exe.config` is missing binding redirects that the real DRA service relies on.
+
+**Why this happens**
+
+When the shim loads `Service.exe` as a managed assembly, the CLR resolves all dependent assemblies in the context of the **shim's** AppDomain. The binding redirects in `Service.exe.config` are **not** automatically inherited — only the redirects in `Docentric.D365FO.DRAServiceShim.exe.config` apply.
+
+**How to fix**
+
+Make sure `Docentric.D365FO.DRAServiceShim.exe.config` contains the same `<assemblyBinding>` entries as `Microsoft.Dynamics.AX.Framework.DocumentRouting.Service.exe.config`. The reference config that ships with this repository already includes all known redirects. If you see a new assembly load failure after a DRA update, open both config files side-by-side and copy any missing `<dependentAssembly>` blocks into the shim config.
+
+The full set of binding redirects the shim config must contain:
+
+| Assembly | Redirect to version |
+|---|---|
+| `Newtonsoft.Json` | `13.0.0.0` |
+| `System.Net.Http.Formatting` | `5.2.9.0` |
+| `Microsoft.Identity.Client` | `4.70.0.0` |
+| `Microsoft.IdentityModel.Abstractions` | `8.3.0.0` |
+| `System.Buffers` | `4.0.3.0` |
+| `System.Diagnostics.DiagnosticSource` | `8.0.0.1` |
+| `System.Memory` | `4.0.1.2` |
+| `System.Runtime.CompilerServices.Unsafe` | `6.0.0.0` |
+| `Microsoft.Owin` | `4.2.2.0` |
+| `Microsoft.Cloud.InstrumentationFramework.Events` | `3.3.9.1` |
+| `System.Reflection.Metadata` | `1.4.2.0` |
+| `System.ValueTuple` | `4.0.3.0` |
+| `System.Collections.Immutable` | `1.2.2.0` |
+| `Bond.Attributes` | `9.0.3.100` |
+| `Microsoft.Cloud.InstrumentationFramework.Metrics` | `3.3.9.1` |
+| `Microsoft.Owin.Security` | `4.2.2.0` |
+| `Microsoft.Data.OData` | `5.8.4.0` |
+| `Microsoft.Data.Edm` | `5.8.4.0` |
+| `Microsoft.Data.Services.Client` | `5.8.4.0` |
+
+> **After a DRA update**, compare `Docentric.D365FO.DRAServiceShim.exe.config` with the freshly installed `Microsoft.Dynamics.AX.Framework.DocumentRouting.Service.exe.config` and sync any new or changed redirects into the shim config. Then rebuild and redeploy with `.\Build.ps1`.
+
+---
+
 ## ⚠️ Disclaimer
 
 > **This solution is a Proof of Concept (POC).**

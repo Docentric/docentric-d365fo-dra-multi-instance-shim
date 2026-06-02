@@ -358,30 +358,35 @@ namespace Docentric.D365FO.DRAServiceShim
 
             Type serviceType = serviceAssembly.GetType(ServiceClassName, throwOnError: true);
 
+            // The Service constructor sets ServiceBase.ServiceName to the embedded resource value:
+            //   "Microsoft Dynamics 365 Document Routing Service"
+            // ServiceBase.Run() calls StartServiceCtrlDispatcher with that name.
+            // The SCM matches by this name, so it must equal the sc.exe registered name.
+            // Override it to the per-instance name (e.g. "DRA1") read from DRA_SERVICE_NAME.
             ServiceBase serviceInstance = (ServiceBase)Activator.CreateInstance(serviceType);
 
             // Hand off to the SCM. This call blocks until the service stops.
             ServiceBase.Run(serviceInstance);
         }
 
-        // ── Error reporting ────────────────────────────────────────────────────
+    // ── Error reporting ────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Attempts to write a startup-failure event to the Windows Application Event Log.
-        /// </summary>
-        /// <remarks>
-        /// Uses the source name <c>"DocentricDRAServiceShim"</c>, creating it if it does not
-        /// already exist.  The event ID is <c>1001</c> with type
-        /// <see cref="EventLogEntryType.Error"/>.
-        /// All exceptions are silently swallowed; if the Event Log write fails the SCM error
-        /// recorded by the re-thrown exception in <see cref="Main"/> is sufficient.
-        /// </remarks>
-        /// <param name="ex">The exception that caused the service to fail to start.</param>
-        private static void WriteEventLogError(Exception ex)
+    /// <summary>
+    /// Attempts to write a startup-failure event to the Windows Application Event Log.
+    /// </summary>
+    /// <remarks>
+    /// Uses the source name <c>"Docentric.D365FO.DRAServiceShim"</c>, creating it if it does not
+    /// already exist.  The event ID is <c>1001</c> with type
+    /// <see cref="EventLogEntryType.Error"/>.
+    /// All exceptions are silently swallowed; if the Event Log write fails the SCM error
+    /// recorded by the re-thrown exception in <see cref="Main"/> is sufficient.
+    /// </remarks>
+    /// <param name="ex">The exception that caused the service to fail to start.</param>
+    private static void WriteEventLogError(Exception ex)
         {
             try
             {
-                const string source = "DocentricDRAServiceShim";
+                const string source = "Docentric.D365FO.DRAServiceShim";
                 if (!EventLog.SourceExists(source))
                     EventLog.CreateEventSource(source, "Application");
 

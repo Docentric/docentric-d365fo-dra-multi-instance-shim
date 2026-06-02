@@ -1,4 +1,4 @@
-# Docentric DRA Multi-Instance Shim
+# Docentric D365FO DRA Multi-Instance Shim
 
 Run multiple **Microsoft Dynamics 365 Document Routing Agent (DRA)** instances on the same Windows server, each writing to its own isolated data directory.
 
@@ -55,6 +55,7 @@ Each instance gets its own `Logs\`, config, token cache, and excluded-printers f
 ├── Build.ps1                          # Builds the shim and copies output
 ├── Install-DRAInstances.ps1           # Creates and registers DRA service instances
 ├── Uninstall-DRAInstances.ps1         # Stops and removes DRA service instances
+├── Update-DRAInstancesConfig.ps1      # Propagates updated config/token files to all instances
 └── README.md
 ```
 
@@ -165,34 +166,20 @@ Whenever you re-authenticate or change settings in the DRA Agent UI, the referen
 ### Re-authenticate or update settings in the base DRA installation
 
 1. Sign in to Windows as the service account, open the **DRA Agent UI**, make your changes, and confirm a **Connected** status.
-2. Stop all instances:
+2. Run `Update-DRAInstancesConfig.ps1` to propagate the updated files to every instance — and optionally restart the services in one step:
    ```powershell
-   Get-Service DRA* | Stop-Service
-   ```
-3. Copy the updated files to each instance data directory:
-   ```powershell
-   $referenceDataPath = "C:\ProgramData\Microsoft\Microsoft Dynamics 365 for Operations - Document Routing"
-   $dataRoot          = "C:\DRAData"
-   $filesToSync = @(
-       "Microsoft.Dynamics.AX.Framework.DocumentRouting.config",
-       "TokenCache2.dat"
-   )
+   # Propagate changes and restart all DRA* services automatically
+   .\Update-DRAInstancesConfig.ps1 -RestartServices
 
-   Get-ChildItem -Directory $dataRoot | ForEach-Object {
-       foreach ($file in $filesToSync) {
-           $src = Join-Path $referenceDataPath $file
-           $dst = Join-Path $_.FullName $file
-           if (Test-Path $src) {
-               Copy-Item $src $dst -Force
-               Write-Host "Copied $file -> $($_.FullName)"
-           }
-       }
-   }
-   ```
-4. Start the instances again:
-   ```powershell
+   # Propagate to specific instances only
+   .\Update-DRAInstancesConfig.ps1 -InstanceNames "DRA1","DRA2","DRA3" -RestartServices
+
+   # Propagate without restarting (restart manually afterwards)
+   .\Update-DRAInstancesConfig.ps1
    Get-Service DRA* | Start-Service
    ```
+
+The script copies `Microsoft.Dynamics.AX.Framework.DocumentRouting.config`, `TokenCache2.dat`, and `Microsoft.Dynamics.AX.Framework.DocumentRouting.ExcludedPrintersSet.xml` from the reference data directory into each instance data directory. When `-RestartServices` is specified it stops each service, copies the files, then starts the service again.
 
 ---
 
@@ -237,6 +224,16 @@ Whenever you re-authenticate or change settings in the DRA Agent UI, the referen
 | `-ServicePrefix` | `DRA` | Prefix used when resolving `"ALL"` |
 | `-RemoveData` | `$false` | Also delete per-instance data directories |
 | `-RemoveBinaries` | `$true` | Delete per-instance binary directories |
+
+### `Update-DRAInstancesConfig.ps1`
+
+| Parameter | Default | Description |
+|---|---|---|
+| `-InstanceNames` | *(auto-discover)* | Service instance names to update, e.g. `"DRA1","DRA2"`. If omitted, all services matching `-ServiceNamePattern` are targeted |
+| `-DataRoot` | `C:\DRAData` | Root folder containing per-instance data directories |
+| `-ReferenceDataPath` | `C:\ProgramData\Microsoft\Microsoft Dynamics 365...` | Authenticated DRA data directory to copy credentials and settings from |
+| `-ServiceNamePattern` | `DRA*` | Wildcard pattern used to discover services when `-InstanceNames` is not supplied |
+| `-RestartServices` | `$false` | Stop each service before copying files and start it again afterwards |
 
 ---
 

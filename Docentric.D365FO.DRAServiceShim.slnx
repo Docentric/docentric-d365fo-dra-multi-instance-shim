@@ -12,6 +12,7 @@
     <File Path="Install-DRAInstances.ps1" />
     <File Path="README.md" />
     <File Path="Uninstall-DRAInstances.ps1" />
+    <File Path="Update-DRAInstancesBinaries.ps1" />
     <File Path="Update-DRAInstancesConfig.ps1" />
   </Folder>
   <Project Path="Docentric.D365FO.DRAServiceShim/Docentric.D365FO.DRAServiceShim.csproj" />

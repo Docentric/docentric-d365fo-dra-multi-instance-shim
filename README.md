@@ -55,6 +55,7 @@ Each instance gets its own `Logs\`, config, token cache, and excluded-printers f
 ├── Build.ps1                          # Builds the shim and copies output
 ├── Install-DRAInstances.ps1           # Creates and registers DRA service instances
 ├── Uninstall-DRAInstances.ps1         # Stops and removes DRA service instances
+├── Update-DRAInstancesBinaries.ps1    # Pushes updated DRA binaries to all instances after a DRA upgrade
 ├── Update-DRAInstancesConfig.ps1      # Propagates updated config/token files to all instances
 └── README.md
 ```
@@ -183,6 +184,75 @@ The script copies `Microsoft.Dynamics.AX.Framework.DocumentRouting.config`, `Tok
 
 ---
 
+## Upgrading DRA
+
+When Microsoft releases a new version of the Document Routing Agent and you install it on the server, the base binaries in the DRA installation directory are updated but **none of the per-instance binary directories** (`C:\DRAInstances\DRA1\`, etc.) are touched. You must push the updated binaries to every instance manually.
+
+> **Important:** `Update-DRAInstancesBinaries.ps1` only updates binaries. If the new DRA version requires you to re-authenticate via the Agent UI (e.g. because the token format changed), also run `Update-DRAInstancesConfig.ps1` afterwards to propagate the new `TokenCache2.dat` and config to each instance — see [Keeping Credentials in Sync](#keeping-credentials-in-sync).
+
+### Upgrade procedure
+
+#### 1. Install the new DRA version
+
+Run the Microsoft DRA installer on the server as usual. The installer updates the files in:
+
+```
+C:\Program Files (x86)\Microsoft Dynamics 365 for Operations - Document Routing\
+```
+
+Do **not** start or use the DRA Agent UI yet.
+
+#### 2. Rebuild the shim (if DRA assemblies changed)
+
+The shim references DRA assemblies at compile time. If the new DRA version ships updated versions of `Microsoft.Dynamics.AX.Framework.DocumentRouting.Runtime.dll` or `Service.exe`, the shim must be rebuilt against the new binaries:
+
+```powershell
+.\Build.ps1
+# or, with a non-default DRA path:
+.\Build.ps1 -DRASourcePath "D:\CustomDRAPath"
+```
+
+If you are unsure whether the assemblies changed, rebuilding is always safe.
+
+#### 3. Push updated binaries to all instances
+
+Run `Update-DRAInstancesBinaries.ps1`. The script automatically stops each running instance service, overwrites the binary directory in-place (preserving service registration and data directories), refreshes the shim EXE and its config, and restarts only the services that were running before:
+
+```powershell
+# Update all DRA* instances (auto-discovered)
+.\Update-DRAInstancesBinaries.ps1
+
+# Update specific instances only
+.\Update-DRAInstancesBinaries.ps1 -InstanceNames "DRA1","DRA2","DRA3"
+
+# Update from a non-default DRA installation path
+.\Update-DRAInstancesBinaries.ps1 -DRASourcePath "D:\CustomDRAPath"
+```
+
+The script performs the following for each instance:
+
+| Step | Action |
+|---|---|
+| **Stop** | Stops the instance service if running; remembers its state |
+| **Update binaries** | Overwrites all files from `DRASourcePath` into `<InstancesRoot>\<Name>\`, skipping SQLite transient files and locked files |
+| **Update shim EXE** | Overwrites `Docentric.D365FO.DRAServiceShim.exe` with the freshly built copy |
+| **Update shim config** | Overwrites `Docentric.D365FO.DRAServiceShim.exe.config` with `Service.exe.config` so CLR binding redirects stay in sync |
+| **Start** | Starts the service again only if it was running before the update |
+
+#### 4. Verify the instances are running
+
+```powershell
+Get-Service DRA* | Select-Object Name, Status
+```
+
+All previously-running instances should show `Running`. Check the per-instance log files to confirm normal operation:
+
+```powershell
+Get-ChildItem C:\DRAData -Filter *.log -Recurse | Sort-Object LastWriteTime -Descending | Select-Object -First 10
+```
+
+---
+
 ## Uninstalling
 
 ```powershell
@@ -224,6 +294,16 @@ The script copies `Microsoft.Dynamics.AX.Framework.DocumentRouting.config`, `Tok
 | `-ServicePrefix` | `DRA` | Prefix used when resolving `"ALL"` |
 | `-RemoveData` | `$false` | Also delete per-instance data directories |
 | `-RemoveBinaries` | `$true` | Delete per-instance binary directories |
+
+### `Update-DRAInstancesBinaries.ps1`
+
+| Parameter | Default | Description |
+|---|---|---|
+| `-InstanceNames` | *(auto-discover)* | Service instance names to update, e.g. `"DRA1","DRA2"`. If omitted, all services matching `-ServiceNamePattern` are targeted |
+| `-DRASourcePath` | `%ProgramFiles(x86)%\Microsoft Dynamics 365...` | DRA installation directory to copy updated binaries from |
+| `-ShimExePath` | `<script dir>\Docentric.D365FO.DRAServiceShim.exe` | Path to the (re)compiled shim executable |
+| `-InstancesRoot` | `C:\DRAInstances` | Root folder containing per-instance binary directories |
+| `-ServiceNamePattern` | `DRA*` | Wildcard pattern used to discover services when `-InstanceNames` is not supplied |
 
 ### `Update-DRAInstancesConfig.ps1`
 

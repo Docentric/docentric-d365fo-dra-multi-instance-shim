@@ -268,6 +268,38 @@ function New-InstanceBinDirectory([string]$SourcePath, [string]$DestPath, [strin
     # Place Docentric.D365FO.DRAServiceShim.exe alongside Service.exe
     Copy-Item -Path $ShimSrc -Destination (Join-Path $DestPath $SHIM_EXE) -Force
     Write-OK "Docentric.D365FO.DRAServiceShim.exe placed"
+
+    # Sync assembly binding redirects from Service.exe.config into the shim config.
+    Set-ShimConfigBindingRedirects -InstanceBinPath $DestPath
+}
+
+<#
+.SYNOPSIS
+    Overwrites Docentric.D365FO.DRAServiceShim.exe.config with a copy of
+    Microsoft.Dynamics.AX.Framework.DocumentRouting.Service.exe.config.
+.PARAMETER InstanceBinPath
+    The per-instance binary directory (e.g. C:\DRAInstances\DRA1).
+.DESCRIPTION
+    The CLR resolves assembly binding redirects from the entry-point executable's
+    config file. Because the shim loads Service.exe as an assembly, the redirects
+    in Service.exe.config are not inherited -- only those in
+    Docentric.D365FO.DRAServiceShim.exe.config apply. Overwriting the shim config
+    with the service config is the simplest way to keep them in sync, and it
+    automatically picks up any redirects added by future DRA updates.
+    If Service.exe.config is absent a warning is emitted and the function returns
+    without throwing.
+#>
+function Set-ShimConfigBindingRedirects([string]$InstanceBinPath) {
+    $serviceConfig = Join-Path $InstanceBinPath "Microsoft.Dynamics.AX.Framework.DocumentRouting.Service.exe.config"
+    $shimConfig    = Join-Path $InstanceBinPath "$SHIM_EXE.config"
+
+    if (-not (Test-Path $serviceConfig)) {
+        Write-Warn "Service.exe.config not found in bin dir -- skipping shim config update: $serviceConfig"
+        return
+    }
+
+    Copy-Item -Path $serviceConfig -Destination $shimConfig -Force
+    Write-OK "Shim config overwritten from Service.exe.config ($serviceConfig -> $shimConfig)"
 }
 
 <#
